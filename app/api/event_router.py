@@ -6,24 +6,8 @@ from app.service.event_service import create_event_service, get_all_events_servi
 from typing import List
 
 
-# DB 세션 의존성 (예시)
-def get_db():
-    from app.models.event import Base
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-
-    engine = create_engine(
-        "sqlite:///./test.db", connect_args={"check_same_thread": False}
-    )
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
+# DB 세션 의존성 함수는 app/db.py에 분리되어 있습니다.
+from app.db import get_db
 router = APIRouter(prefix="/api/events", tags=["events"])
 
 
