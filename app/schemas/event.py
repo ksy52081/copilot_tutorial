@@ -1,13 +1,24 @@
 from pydantic import BaseModel
+from typing import List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.schemas.menu import MenuResponse
 
 
-class EventCreate(BaseModel):
+class EventBase(BaseModel):
     name: str
 
 
-class EventRead(BaseModel):
-    event_id: int
-    name: str
+class EventCreate(EventBase):
+    pass
 
+
+class EventResponse(EventBase):
+    id: int
+    
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+
+class EventWithMenus(EventResponse):
+    menus: List["MenuResponse"] = [] 

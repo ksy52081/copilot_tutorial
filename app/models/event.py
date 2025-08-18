@@ -1,10 +1,13 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, String
+from sqlalchemy.orm import relationship
+from app.models.base import BaseModel
 
-from app.models.base import Base
 
-
-class Event(Base):
+class Event(BaseModel):
     __tablename__ = "events"
-
-    event_id = Column(Integer, primary_key=True, autoincrement=True)
+    
     name = Column(String, nullable=False)
+    
+    # Relationships
+    menus = relationship("Menu", back_populates="event", cascade="all, delete-orphan")
+    votes = relationship("Vote", back_populates="event", cascade="all, delete-orphan") 

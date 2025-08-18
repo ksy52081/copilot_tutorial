@@ -1,15 +1,44 @@
 import pytest
-import os
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from app.main import app
+from app.db import get_db, Base
+
+# Test database URL
+SQLITE_DATABASE_URL = "sqlite:///./test.db"
+
+engine = create_engine(
+    SQLITE_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-@pytest.fixture(autouse=True)
-def cleanup_db():
-    """
-    각 테스트 전후로 SQLite DB 파일을 삭제하여 초기화한다.
-    """
-    db_path = os.path.join(os.path.dirname(__file__), "..", "app", "test.db")
-    if os.path.exists(db_path):
-        os.remove(db_path)
-    yield
-    if os.path.exists(db_path):
-        os.remove(db_path)
+def override_get_db():
+    try:
+        db = TestingSessionLocal()
+        yield db
+    finally:
+        db.close()
+
+
+app.dependency_overrides[get_db] = override_get_db
+
+
+@pytest.fixture
+def client():
+    Base.metadata.create_all(bind=engine)
+    with TestClient(app) as c:
+        yield c
+    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def db_session():
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine) 

@@ -1,12 +1,30 @@
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from app.repository.event_repository import create_event, get_all_events
-from app.schemas.event import EventCreate
-from app.models.event import Event
+from typing import List
+from app.repository.event_repository import EventRepository
+from app.schemas.event import EventCreate, EventResponse
 
 
-def create_event_service(db: Session, event_create: EventCreate) -> Event:
-    return create_event(db, event_create.name)
-
-
-def get_all_events_service(db: Session) -> list[Event]:
-    return get_all_events(db)
+class EventService:
+    def __init__(self, db: Session):
+        self.repository = EventRepository(db)
+    
+    def create_event(self, event_data: EventCreate) -> EventResponse:
+        event = self.repository.create(event_data)
+        return EventResponse.model_validate(event)
+    
+    def get_all_events(self) -> List[EventResponse]:
+        events = self.repository.get_all()
+        return [EventResponse.model_validate(event) for event in events]
+    
+    def get_event_by_id(self, event_id: int) -> EventResponse:
+        event = self.repository.get_by_id(event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return EventResponse.model_validate(event)
+    
+    def delete_event(self, event_id: int) -> bool:
+        success = self.repository.delete(event_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return success 
