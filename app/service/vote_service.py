@@ -19,10 +19,14 @@ class VoteService:
         if not event:
             raise HTTPException(status_code=404, detail="Event not found")
         
-        # Check if menu exists and belongs to the event
+        # Check if menu exists
         menu = self.menu_repository.get_by_id(vote_data.menu_id)
-        if not menu or menu.event_id != event_id:
-            raise HTTPException(status_code=400, detail="Menu not found or does not belong to this event")
+        if not menu:
+            raise HTTPException(status_code=404, detail=f"Menu with id {vote_data.menu_id} not found")
+        
+        # Check if menu belongs to the event
+        if menu.event_id != event_id:
+            raise HTTPException(status_code=400, detail="Menu does not belong to this event")
         
         vote = self.vote_repository.create(event_id, vote_data)
         return VoteResponse.model_validate(vote)

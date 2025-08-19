@@ -1,8 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class VoteBase(BaseModel):
-    menu_id: int
+    menu_id: int = Field(..., gt=0, description="Menu ID must be positive")
 
 
 class VoteCreate(VoteBase):

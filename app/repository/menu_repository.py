@@ -21,6 +21,12 @@ class MenuRepository:
     def get_by_id(self, menu_id: int) -> Optional[Menu]:
         return self.db.query(Menu).filter(Menu.id == menu_id).first()
     
+    def get_by_name_and_event(self, event_id: int, menu_name: str) -> Optional[Menu]:
+        return self.db.query(Menu).filter(
+            Menu.event_id == event_id, 
+            Menu.name == menu_name
+        ).first()
+    
     def delete(self, menu_id: int) -> bool:
         menu = self.get_by_id(menu_id)
         if menu:

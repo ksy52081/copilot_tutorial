@@ -17,6 +17,11 @@ class MenuService:
         if not event:
             raise HTTPException(status_code=404, detail="Event not found")
         
+        # Check if menu with same name already exists in this event
+        existing_menu = self.menu_repository.get_by_name_and_event(event_id, menu_data.name)
+        if existing_menu:
+            raise HTTPException(status_code=400, detail=f"Menu with name '{menu_data.name}' already exists for this event")
+        
         menu = self.menu_repository.create(event_id, menu_data)
         return MenuResponse.model_validate(menu)
     
