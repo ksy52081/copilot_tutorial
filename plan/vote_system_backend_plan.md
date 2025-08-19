@@ -70,11 +70,39 @@ CREATE TABLE votes (
 
 ### 3. 비즈니스 규칙
 
+**기본 비즈니스 규칙:**
 - 존재하지 않는 이벤트에 메뉴 추가 시 404 에러
 - 존재하지 않는 이벤트에 투표 시 404 에러  
+- 존재하지 않는 메뉴에 투표 시 404 에러
 - 다른 이벤트의 메뉴에 투표 시 400 에러
+- 같은 이벤트 내에서 동일한 메뉴명 추가 시 400 에러
 - 투표 결과는 메뉴별 득표수로 집계
 - 투표가 없는 메뉴도 결과에 포함 (득표수 0)
+
+**에러 처리 상세 규칙:**
+- 404 에러: "Event not found", "Menu with id {id} not found"
+- 400 에러: "Menu does not belong to this event", "Menu with name '{name}' already exists for this event"
+- 422 에러: 입력 데이터 검증 실패 시 Pydantic validation error
+
+### 4. 입력 데이터 검증 규칙
+
+**이벤트명 검증:**
+- 최소 1자, 최대 100자 제한
+- 빈 문자열 또는 공백만 있는 문자열 금지
+- 앞뒤 공백 자동 제거 (trim)
+
+**메뉴명 검증:**
+- 최소 1자, 최대 50자 제한  
+- 빈 문자열 또는 공백만 있는 문자열 금지
+- 앞뒤 공백 자동 제거 (trim)
+- 같은 이벤트 내 중복 메뉴명 금지
+
+**투표 데이터 검증:**
+- menu_id는 양수만 허용 (0 이하 금지)
+
+**검증 실패 시 응답:**
+- HTTP 422 Unprocessable Entity
+- 구체적인 검증 오류 메시지 포함
 
 ## Implementation Steps
 
@@ -114,9 +142,10 @@ app/
     └── vote_repository.py
 
 test/
-├── conftest.py           # pytest 설정
-├── test_event_api.py     # 단위 테스트
-└── test_event_api_e2e.py # E2E 테스트
+├── conftest.py                  # pytest 설정
+├── test_event_api.py            # 단위 테스트
+├── test_event_api_e2e.py        # E2E 테스트
+└── test_validation_scenarios.py # 입력 검증 테스트
 ```
 
 **requirements.txt 생성:**
@@ -166,6 +195,24 @@ class EntityResponse(EntityBase):
         from_attributes = True
 ```
 
+**입력 검증 구현 가이드라인:**
+
+**Field 검증 적용:**
+- `Field()`를 사용하여 길이 제한, 범위 제한, 설명 추가
+- 이벤트명: 1~100자 제한
+- 메뉴명: 1~50자 제한  
+- 투표 ID: 양수 제한
+
+**커스텀 검증 로직:**
+- `@field_validator` 데코레이터 활용
+- 빈 문자열과 공백 문자열 검증
+- 자동 공백 제거(trim) 기능 구현
+- 명확한 검증 오류 메시지 제공
+
+**검증 실패 시 처리:**
+- ValueError 발생으로 422 HTTP 상태코드 반환
+- 사용자 친화적인 오류 메시지 작성
+
 **투표 결과용 특별 스키마:**
 - VoteResult: menu_id, menu_name, vote_count 필드
 
@@ -176,6 +223,16 @@ class EntityResponse(EntityBase):
 - `create()`: 엔티티 생성
 - `get_by_id()`: ID로 조회
 - `get_all()` 또는 `get_by_xxx()`: 목록 조회
+
+**MenuRepository 특수 메서드:**
+- `get_by_name_and_event(event_id, menu_name)`: 중복 메뉴명 검사용 조회
+```python
+def get_by_name_and_event(self, event_id: int, menu_name: str) -> Optional[Menu]:
+    return self.db.query(Menu).filter(
+        Menu.event_id == event_id, 
+        Menu.name == menu_name
+    ).first()
+```
 
 **VoteRepository 특수 메서드:**
 - `get_vote_results(event_id)`: LEFT JOIN으로 메뉴별 투표 집계
@@ -189,9 +246,40 @@ class EntityResponse(EntityBase):
 - HTTPException을 통한 에러 처리
 - Pydantic 모델 변환 (model_validate 사용)
 
-**핵심 비즈니스 로직:**
-- MenuService: 메뉴 생성 시 이벤트 존재 검증
-- VoteService: 투표 시 이벤트 존재 + 메뉴-이벤트 연관성 검증
+**에러 처리 개선 전략:**
+- 404와 400 에러를 명확히 분리
+- 구체적이고 사용자 친화적인 에러 메시지 제공
+- 검증 단계를 논리적 순서로 분리
+
+**MenuService 비즈니스 로직 설계:**
+
+**검증 순서 원칙:**
+1. **리소스 존재 확인** (404 에러 대상)
+   - 이벤트 존재 여부 확인
+2. **비즈니스 규칙 검증** (400 에러 대상)  
+   - 중복 메뉴명 검사
+3. **엔티티 생성 및 반환**
+
+**중복 방지 구현:**
+- Repository에서 이벤트별 메뉴명 조회 메서드 활용
+- 중복 발견 시 구체적인 메뉴명 포함한 에러 메시지
+
+**VoteService 비즈니스 로직 설계:**
+
+**다단계 검증 순서:**
+1. **이벤트 존재 확인** (404)
+2. **메뉴 존재 확인** (404)
+3. **메뉴-이벤트 연관성 확인** (400)
+4. **투표 생성**
+
+**에러 메시지 구체화:**
+- 존재하지 않는 리소스: ID 포함한 명확한 메시지
+- 비즈니스 규칙 위반: 위반 내용 명시
+
+**공통 구현 원칙:**
+- Repository 의존성 주입 패턴 사용
+- HTTPException으로 일관된 에러 처리
+- Pydantic model_validate로 응답 변환
 
 ### Phase 6: API Router 구현
 
@@ -228,6 +316,37 @@ class EntityResponse(EntityBase):
 **E2E 테스트 (test_event_api_e2e.py):**
 - 전체 투표 워크플로우 테스트 (이벤트 생성→메뉴 추가→투표→결과 조회)
 - 잘못된 요청 시나리오 테스트
+- 중복 메뉴명 에러 시나리오 테스트
+- 다른 이벤트 메뉴에 투표하는 에러 시나리오 테스트
+- 구체적인 에러 메시지 검증 테스트
+
+**입력 검증 테스트 (test_validation_scenarios.py):**
+**이벤트명 검증 테스트:**
+- 빈 문자열 이벤트명 에러 테스트
+- 공백만 있는 이벤트명 에러 테스트
+- 길이 초과 이벤트명 에러 테스트
+- 공백 제거(trim) 기능 테스트
+
+**메뉴명 검증 테스트:**
+- 빈 문자열 메뉴명 에러 테스트
+- 공백만 있는 메뉴명 에러 테스트
+- 길이 초과 메뉴명 에러 테스트
+- 공백 제거(trim) 기능 테스트
+
+**투표 데이터 검증 테스트:**
+- 음수 menu_id 에러 테스트
+- 0 값 menu_id 에러 테스트
+- 잘못된 데이터 타입 에러 테스트
+
+**통합 검증 테스트:**
+- 필수 필드 누락 에러 테스트
+- 모든 422 에러 응답 형식 검증
+
+**테스트 커버리지 목표:**
+- 모든 validation 규칙 테스트 (100% 커버리지)
+- 모든 에러 시나리오 테스트 (404, 400, 422)
+- 해피 패스와 엣지 케이스 모두 포함
+- 비즈니스 규칙 위반 시나리오 전체 커버
 
 ### Phase 9: 실행 및 검증
 
@@ -262,11 +381,17 @@ pytest  # 모든 테스트 실행
 - Service 계층에서 Repository 주입
 
 **에러 처리 전략:**
-- 404: 리소스 존재하지 않음
-- 400: 잘못된 요청 (메뉴-이벤트 불일치)
-- HTTPException 사용
+- 404: 리소스 존재하지 않음 ("Event not found", "Menu with id {id} not found")
+- 400: 잘못된 요청 ("Menu does not belong to this event", "Menu with name '{name}' already exists for this event")
+- 422: 입력 데이터 검증 실패 (Pydantic validation error)
+- HTTPException 사용하여 구체적이고 사용자 친화적인 메시지 제공
+- 검증 단계를 논리적 순서로 분리 (존재 확인 → 비즈니스 규칙 확인 → 생성/처리)
 
 **테스트 전략:**
 - 각 테스트 독립성 보장 (DB 초기화)
 - 해피 패스와 에러 시나리오 모두 테스트
 - E2E 테스트로 전체 플로우 검증
+- 입력 검증 테스트로 모든 validation 규칙 커버
+- 모든 HTTP 상태코드별 에러 시나리오 테스트 (404, 400, 422)
+- 구체적인 에러 메시지 검증
+- 엣지 케이스와 경계값 테스트 포함
